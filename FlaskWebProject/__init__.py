@@ -14,6 +14,7 @@ app.config.from_object(Config)
 Session(app)
 db = SQLAlchemy(app)
 login = LoginManager(app)
+app.logger.info('%s logged in successfully', login)
 login.login_view = 'login'
 
 import FlaskWebProject.views

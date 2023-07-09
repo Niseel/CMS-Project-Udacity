@@ -7,7 +7,7 @@ from flask import render_template, flash, redirect, request, session, url_for
 from werkzeug.urls import url_parse
 from config import Config
 from FlaskWebProject import app, db
-from FlaskWebProject.forms import LoginForm, PostForm
+from FlaskWebProject.forms import LoginForm, PostForm, RemoveImage
 from flask_login import current_user, login_user, logout_user, login_required
 from FlaskWebProject.models import User, Post
 import msal
@@ -34,6 +34,7 @@ def new_post():
     if form.validate_on_submit():
         post = Post()
         post.save_changes(form, request.files['image_path'], current_user.id, new=True)
+        app.logger.info('%s posted successfully', current_user)
         return redirect(url_for('home'))
     return render_template(
         'post.html',
@@ -57,6 +58,22 @@ def post(id):
         imageSource=imageSourceUrl,
         form=form
     )
+
+@app.route('/post/<int:id>', methods=['GET', 'POST'])
+@login_required
+def remove_image(id):
+    post = Post.query.get(int(id))
+    form = RemoveImage(formdata=request.form, obj=post)
+    if form.validate_on_submit():
+        post.save_changes(form, request.files['image_path'], current_user.id)
+        return redirect(url_for('home'))
+    return render_template(
+        'post.html',
+        title='Edit Post',
+        imageSource=imageSourceUrl,
+        form=form
+    )
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -86,7 +103,11 @@ def authorized():
     if request.args.get('code'):
         cache = _load_cache()
         # TODO: Acquire a token from a built msal app, along with the appropriate redirect URI
-        result = None
+        result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
+            request.args['code'],
+            scopes=Config.SCOPE,
+            redirect_uri=url_for('authorized', _external=True, _scheme='https')
+            )
         if "error" in result:
             return render_template("auth_error.html", result=result)
         session["user"] = result.get("id_token_claims")
@@ -117,12 +138,19 @@ def _load_cache():
 
 def _save_cache(cache):
     # TODO: Save the cache, if it has changed
+    app.logger.info('%s logged in successfully', cache)
     pass
 
 def _build_msal_app(cache=None, authority=None):
     # TODO: Return a ConfidentialClientApplication
-    return None
+    return msal.ConfidentialClientApplication(
+        Config.CLIENT_ID, authority=authority or Config.AUTHORITY,
+        client_credential=Config.CLIENT_SECRET, 
+        token_cache=cache)
 
 def _build_auth_url(authority=None, scopes=None, state=None):
     # TODO: Return the full Auth Request URL with appropriate Redirect URI
-    return None
+    return _build_msal_app(authority=authority).get_authorization_request_url(
+        scopes or [],
+        state=state or str(uuid.uuid4()),
+        redirect_uri=url_for('authorized', _external=True, _scheme='https'))
